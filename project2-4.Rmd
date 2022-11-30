@@ -1,0 +1,565 @@
+---
+title: "Final project report"
+author: "Xingxin Ma"
+date: "04/22/2022"
+output:
+  word_document: default
+  pdf_document: default
+  html_document:
+    fig_height: 4
+    highlight: pygments
+    theme: spacelab
+---
+
+```{r setup, include=FALSE}
+# DO NOT ALTER CODE IN THIS CHUNK
+knitr::opts_chunk$set(echo = TRUE)
+library(ISLR)
+library(plyr)
+library(ggplot2)
+library(boot)
+library(glmnet)
+
+```
+```{r}
+set.seed(1)
+library(class)
+data<-read.table(file="train1.csv",sep =",",head=TRUE, stringsAsFactors = TRUE)
+dim(data)
+summary(data)
+
+#data clean
+#delete some variables
+data$Id<-NULL
+data$Street<-NULL
+data$Alley<-NULL #too many NA
+data$LotFrontage<-NULL #too many NA
+data$GarageYrBlt<-NULL #too many NA
+data$Fence<-NULL #too many NA
+data$MiscFeature<-NULL #too many NA
+data$PoolQC<-NULL #too many NA
+data$BsmtQual<-NULL #too many NA
+data$BsmtCond<-NULL #too many NA
+data$BsmtExposure<-NULL #too many NA
+data$BsmtFinType1<-NULL #too many NA
+data$BsmtFinType2<-NULL #too many NA
+data$FireplaceQu<-NULL #too many NA
+data$GarageType<-NULL #too many NA
+data$GarageFinish<-NULL #too many NA
+data$GarageQual<-NULL #too many NA
+data$GarageCond<-NULL #too many NA
+data$Utilities<-NULL #only two level, one level has only 1 data
+data$Condition2<-NULL #most level<10
+data$Heating<-NULL #most level<10
+
+#combine some variables
+levels(data$MSZoning)
+levels(data$MSZoning)[levels(data$MSZoning)%in%c("C (all)","RH")] <- "CandRH" #combine C and RH
+levels(data$LotConfig)[levels(data$LotConfig)%in%c("FR3","FR2")] <- "FR2andFR3"
+levels(data$RoofStyle)[levels(data$RoofStyle)%in%c("Shed","Mansard","Gambrel")] <- "Combined"
+levels(data$RoofMatl)[levels(data$RoofMatl)%in%c("Tar&Grv","WdShngl","WdShake","ClyTile","Membran","(Other)","Metal","Roll")] <- "Combined"
+levels(data$ExterCond)[levels(data$ExterCond)%in%c("Ex","Po","Fa")] <- "CombinedFa"
+levels(data$Foundation)[levels(data$Foundation)%in%c("Slab","Stone","Wood")] <- "FR2andFR3"
+levels(data$HeatingQC)[levels(data$HeatingQC)%in%c("Po","Fa")] <- "CombinedFa"
+levels(data$Electrical)[levels(data$Electrical)%in%c("FuseP","Mix","FuseF")] <- "CombinedFuseF"
+levels(data$Functional)[levels(data$Functional)%in%c("Maj2","Sev","Maj1")] <- "CombinedMaj1"
+levels(data$SaleType)[levels(data$SaleType)%in%c("ConLD","ConLI","ConLw","(Other)")] <- "CombinedOther"
+levels(data$SaleCondition)[levels(data$SaleCondition)%in%c("AdjLand","Alloca")] <- "CombinedFa"
+levels(data$Exterior2nd)[levels(data$Exterior2nd)%in%c("AsphShn","Brk Cmn","CBlock","ImStucc","Other","Stone")] <- "CombinedOther"
+
+summary(data)
+#View(data)
+dim(data)
+#View(data0)
+data0=na.omit(data)
+summary(data0)
+dim(data0)
+names(data0)
+train=sample(dim(data0)[1],dim(data0)[1]*0.75)#split data
+
+##############################
+# Simple Linear Regression ###
+##############################
+#exclude the variables that will cause error
+#use only quantitative variables
+lm.fit=lm(SalePrice~MSSubClass+LotArea+OverallQual+OverallCond+YearBuilt+YearRemodAdd+BsmtFinSF1+BsmtFinSF2+BsmtUnfSF+TotalBsmtSF+X1stFlrSF+X2ndFlrSF+LowQualFinSF+GrLivArea+BsmtFullBath+BsmtHalfBath+FullBath+HalfBath+BedroomAbvGr+KitchenAbvGr+TotRmsAbvGrd+Fireplaces+GarageCars+GarageArea+WoodDeckSF+OpenPorchSF+EnclosedPorch+X3SsnPorch+ScreenPorch+PoolArea+MiscVal+MoSold+YrSold+MasVnrArea,data=data0[train,])
+summary(lm.fit)#if NA appeared in summary, it means the variable has correlationship with the other variables. You may delete the variable
+#R^2 on training data:0.8003
+
+#predict
+pred=predict(lm.fit,data.frame(data0[-train,]), interval="prediction")
+real<-data0[-train,]$SalePrice
+lm.mean=mean((pred-real)^2)
+#MSE:4788848299
+lm.mae=mean(abs(pred-real))
+#MAE:51883
+lm.test.avg<-mean(real)
+lm.r2<-1-mean((pred-real)^2)/mean((lm.test.avg-real)^2)#
+#0.1889655
+
+#deleted these two variables: TotalBsmtSF and GrLivArea. (Because correlated with other variables)
+lm.fit=lm(SalePrice~MSSubClass+LotArea+OverallQual+OverallCond+YearBuilt+YearRemodAdd+BsmtFinSF1+BsmtFinSF2+BsmtUnfSF+X1stFlrSF+X2ndFlrSF+LowQualFinSF+BsmtFullBath+BsmtHalfBath+FullBath+HalfBath+BedroomAbvGr+KitchenAbvGr+TotRmsAbvGrd+Fireplaces+GarageCars+GarageArea+WoodDeckSF+OpenPorchSF+EnclosedPorch+X3SsnPorch+ScreenPorch+PoolArea+MiscVal+MoSold+YrSold+MasVnrArea,data=data0[train,])
+summary(lm.fit)
+
+#predict
+pred=predict(lm.fit,data.frame(data0[-train,]), interval="prediction")
+real<-data0[-train,]$SalePrice
+lm.mean=mean((pred-real)^2)
+#MSE:4379549328
+lm.mae=mean(abs(pred-real))
+#MAE:56127.89
+lm.real.avg<-mean(real)
+lm.r2<-1-mean((pred-real)^2)/mean((lm.real.avg-real)^2)
+#0.1889655
+#so delete the variable which is correlated with the other variables will not impact the result
+
+#add some qualitative variables
+lm.fit=lm(SalePrice~MSSubClass+LotArea+OverallQual+OverallCond+YearBuilt+YearRemodAdd+BsmtFinSF1+BsmtFinSF2+BsmtUnfSF+X1stFlrSF+X2ndFlrSF+LowQualFinSF+BsmtFullBath+BsmtHalfBath+FullBath+HalfBath+BedroomAbvGr+KitchenAbvGr+TotRmsAbvGrd+Fireplaces+GarageCars+GarageArea+WoodDeckSF+OpenPorchSF+EnclosedPorch+X3SsnPorch+ScreenPorch+PoolArea+MiscVal+MoSold+YrSold+MasVnrArea+MSZoning+LotShape+LandContour+LotConfig+LandSlope+Neighborhood+Condition1+BldgType+HouseStyle+RoofStyle+RoofMatl+Exterior1st+Exterior2nd+MasVnrType+ExterQual+ExterCond+Foundation+HeatingQC+CentralAir+Electrical+KitchenQual+Functional+PavedDrive+SaleType+SaleCondition,data=data0[train,])
+summary(lm.fit)
+#R^2 on training data:0.8852
+
+#predict
+pred=predict(lm.fit,data.frame(data0[-train,]), interval="prediction")
+real<-data0[-train,]$SalePrice
+lm.mean=mean((pred-real)^2)
+#MSE:3520772634
+lm.mae=mean(abs(pred-real))
+#MAE:49630.12
+lm.real.avg<-mean(real)
+lm.r2<-1-mean((pred-real)^2)/mean((lm.real.avg-pred)^2)
+#0.5402929
+
+################################
+# Multiple Linear Regression ###
+################################
+lm.fit2=lm(SalePrice~MSSubClass+LotArea+I(OverallQual^2)+OverallCond+YearBuilt+YearRemodAdd+BsmtFinSF1+BsmtFinSF2+BsmtUnfSF+X1stFlrSF+X2ndFlrSF+LowQualFinSF+BsmtFullBath+BsmtHalfBath+FullBath+HalfBath+BedroomAbvGr+KitchenAbvGr+TotRmsAbvGrd+Fireplaces+GarageCars+GarageArea+WoodDeckSF+OpenPorchSF+EnclosedPorch+X3SsnPorch+ScreenPorch+PoolArea+MiscVal+MoSold+YrSold+MasVnrArea+MSZoning+LotShape+LandContour+LotConfig+LandSlope+Neighborhood+Condition1+BldgType+HouseStyle+RoofStyle+RoofMatl+Exterior1st+Exterior2nd+MasVnrType+ExterQual+ExterCond+Foundation+HeatingQC+CentralAir+Electrical+KitchenQual+Functional+PavedDrive+SaleType+SaleCondition,data=data0[train,])
+summary(lm.fit2)
+#R^2 on training set=0.8875
+
+pred2=predict(lm.fit2,data.frame(data0[-train,]), interval="prediction", na.action= na.pass)
+real2<-data0[-train,]$SalePrice
+lm2.mean=mean((pred2-real2)^2)
+lm2.mean
+#MSE:3442170128
+lm2.mae=mean(abs(pred2-real2))
+#MAE:49096.19
+lm2.real.avg<-mean(real2)
+lm2.r2<-1-mean((pred2-real2)^2)/mean((lm2.real.avg-real)^2)
+#0.5402929
+
+data0$TotalBsmtSF<-NULL
+data0$GrLivArea<-NULL
+########################
+#        Ridge        ##
+########################
+#rerun data clean part to include categorical variables
+set.seed(1)
+x=model.matrix(SalePrice~.,data0)[,-1]
+dim(x)
+#1451
+y=data0$SalePrice
+length(y)
+#1451
+test=(-train)
+y.test=y[test]
+grid=10^seq(10,-2,length=100)
+ridge.mod=glmnet(x,y,alpha=0,lambda=grid)
+cv.out=cv.glmnet(x[train,],y[train],alpha=0)
+plot(cv.out)
+bestlam=cv.out$lambda.min
+bestlam
+#28427.95
+ridge.pred=predict(ridge.mod,s=bestlam,newx=x[test,])
+mean((ridge.pred-y.test)^2)
+#590356142
+ridge.mae=mean(abs(ridge.pred-y.test))
+#16388.79
+ridge.test.avg<-mean(y.test)
+ridge.r2<-1-mean((ridge.pred-y.test)^2)/mean((ridge.test.avg-y.test)^2)
+#0.8906739
+
+#################
+# The Lasso  ####
+#################
+lasso.mod=glmnet(x[train,],y[train],alpha=1,lambda=grid)
+plot(lasso.mod)#coefficient plot
+set.seed(1)
+cv.out=cv.glmnet(x[train,],y[train],alpha=1)
+plot(cv.out)#CV error plot
+bestlam=cv.out$lambda.min #cv.out$lambda.1se
+lasso.pred=predict(lasso.mod,s=bestlam,newx=x[test,])
+mean((lasso.pred-y.test)^2) #MSE:686298113
+out=glmnet(x,y,alpha=1,lambda=grid)
+lasso.mae=mean(abs(lasso.pred-y.test))
+#17845.57
+lasso.test.avg<-mean(y.test)
+lasso.r2<-1-mean((lasso.pred-y.test)^2)/mean((lasso.test.avg-y.test)^2)
+#0.8729067
+lasso.coef=predict(out,type="coefficients",s=bestlam)[1:20,]
+lasso.coef
+lasso.coef[lasso.coef!=0]
+
+#############################################
+# Forward and Backward Stepwise Selection ###
+#############################################
+library(leaps)
+dim(data0)
+regfit.fwd=regsubsets(SalePrice~.,data=data0,nvmax=59,method="forward")
+reg.fwd.summary=summary(regfit.fwd)
+names(reg.fwd.summary)
+reg.fwd.summary$rsq
+par(mfrow=c(2,2))
+plot(reg.fwd.summary$rss,xlab="Number of Variables",ylab="RSS",type="l")
+plot(reg.fwd.summary$adjr2,xlab="Number of Variables",ylab="Adjusted RSq",type="l")
+which.max(reg.fwd.summary$adjr2)#59
+points(59,reg.fwd.summary$adjr2[59], col="red",cex=2,pch=20)
+plot(reg.fwd.summary$cp,xlab="Number of Variables",ylab="Cp",type='l')
+which.min(reg.fwd.summary$cp)
+points(59,reg.fwd.summary$cp[59],col="red",cex=2,pch=20)
+which.min(reg.fwd.summary$bic)
+plot(reg.fwd.summary$bic,xlab="Number of Variables",ylab="BIC",type='l')
+points(33,reg.fwd.summary$bic[33],col="red",cex=2,pch=20)
+
+#par(mfrow=c(2,2))
+# plot(regfit.fwd,scale="r2")
+# plot(regfit.fwd,scale="adjr2")
+# plot(regfit.fwd,scale="Cp")
+# plot(regfit.fwd,scale="bic")
+
+regfit.bwd=regsubsets(SalePrice~.,data=data0,nvmax=59,method="backward")
+reg.bwd.summary=summary(regfit.bwd)
+par(mfrow=c(2,2))
+plot(reg.bwd.summary$rss,xlab="Number of Variables",ylab="RSS",type="l")
+plot(reg.bwd.summary$adjr2,xlab="Number of Variables",ylab="Adjusted RSq",type="l")
+which.max(reg.bwd.summary$adjr2)
+points(59,reg.bwd.summary$adjr2[59], col="red",cex=2,pch=20)
+plot(reg.bwd.summary$cp,xlab="Number of Variables",ylab="Cp",type='l')
+which.min(reg.bwd.summary$cp)
+points(59,reg.bwd.summary$cp[59],col="red",cex=2,pch=20)
+which.min(reg.bwd.summary$bic)
+plot(reg.bwd.summary$bic,xlab="Number of Variables",ylab="BIC",type='l')
+points(44,reg.bwd.summary$bic[44],col="red",cex=2,pch=20)
+
+#par(mfrow=c(2,2))
+# plot(regfit.bwd,scale="r2")
+# plot(regfit.bwd,scale="adjr2")
+# plot(regfit.bwd,scale="Cp")
+# plot(regfit.bwd,scale="bic")
+
+#coef(regfit.full,7)
+coef(regfit.fwd,33)
+coef(regfit.bwd,44)
+
+#Using forward 33 variables to build lm, delete duplicate categorical variables
+lm.fit=lm(SalePrice~MSSubClass+LotArea+LotShape+LotConfig+Neighborhood+Condition1+HouseStyle+OverallQual+OverallCond+YearBuilt+YearRemodAdd+Exterior1st+ExterQual+BsmtFinSF1+X1stFlrSF+X2ndFlrSF+BsmtFullBath+KitchenQual+Functional+Fireplaces+GarageCars+WoodDeckSF+ScreenPorch+SaleType+SaleCondition,data=data0[train,])
+summary(lm.fit)#if NA appeared in summary, it means the variable has correlationship with the other variables. You may delete the variable
+#R^2 on training data:0.8003
+
+#predict
+pred=predict(lm.fit,data.frame(data0[-train,]), interval="prediction")
+real<-data0[-train,]$SalePrice
+lm.mean=mean((pred-real)^2)
+#MSE:3430831139
+lm.mae=mean(abs(pred-real))
+#MAE:49112.43
+lm.test.avg<-mean(real)
+lm.r2<-1-mean((pred-real)^2)/mean((lm.test.avg-real)^2)#
+#0.3646555
+
+#Using backward 44 variables to build lm, delete duplicate categorical variables
+lm.fit=lm(SalePrice~LotArea+LotShape+LandContour+LotConfig+LandSlope+Neighborhood+Condition1+BldgType+HouseStyle+OverallQual+OverallCond+YearBuilt+Exterior1st+MasVnrArea+ExterQual+BsmtFinSF1+X1stFlrSF+X2ndFlrSF+BsmtFullBath+FullBath+BedroomAbvGr+KitchenAbvGr+KitchenQual+TotRmsAbvGrd+Functional+GarageCars+WoodDeckSF+ScreenPorch+SaleType,data=data0[train,])
+summary(lm.fit)#if NA appeared in summary, it means the variable has correlationship with the other variables. You may delete the variable
+#R^2 on training data:0.8003
+
+#predict
+pred=predict(lm.fit,data.frame(data0[-train,]), interval="prediction")
+real<-data0[-train,]$SalePrice
+lm.mean=mean((pred-real)^2)
+#MSE:3326478397
+lm.mae=mean(abs(pred-real))
+#MAE:48419.07
+lm.test.avg<-mean(real)
+lm.r2<-1-mean((pred-real)^2)/mean((lm.test.avg-real)^2)#
+#0.3839803
+
+#########################
+#### Decision Trees  ####
+#########################
+library(tree)
+tree.model=tree(SalePrice~.-SalePrice,data=data0, subset=train)
+summary(tree.model)
+plot(tree.model)
+text(tree.model,pretty=0)
+tree.pred=predict(tree.model,data0[test,])
+tree.pred
+length(tree.pred)
+mean((tree.pred-data0[test,]$SalePrice)^2) #MSE:2150941148
+tree.mae=mean(abs(tree.pred-data0[test,]$SalePrice))
+tree.mae
+#30476.96
+avg.real<-mean(data0[test,]$SalePrice)
+tree.r2<-1-mean((tree.pred-data0[test,]$SalePrice)^2)/mean((avg.real-data0[test,]$SalePrice)^2)
+tree.r2
+#0.6016742
+
+#pruning the tree
+set.seed(1)
+cv.tree=cv.tree(tree.model)
+names(cv.tree)
+cv.tree
+par(mfrow=c(1,2))
+plot(cv.tree$size,cv.tree$dev,type="b")
+plot(cv.tree$k,cv.tree$dev,type="b")
+#with 9 terminal nodes with lowest CV error
+prune.tree=prune.tree(tree.model,best=9)
+plot(prune.tree)
+text(prune.tree,pretty=0)
+tree.pred=predict(prune.tree,data0[test,])
+tree.pred
+length(tree.pred)
+mean((tree.pred-data0[test,]$SalePrice)^2) #MSE:1938185963
+tree.mae=mean(abs(tree.pred-data0[test,]$SalePrice))
+tree.mae
+#30318.45
+avg.real<-mean(data0[test,]$SalePrice)
+tree.r2<-1-mean((tree.pred-data0[test,]$SalePrice)^2)/mean((avg.real-data0[test,]$SalePrice)^2)
+tree.r2
+#0.6410736
+
+########################
+# K-Nearest Neighbors ##
+########################
+#delete all categorical variables
+data$RoofStyle<-NULL
+data$MasVnrType<-NULL
+data$HouseStyle<-NULL
+data$Neighborhood<-NULL
+data$SaleCondition<-NULL
+data$MSZoning<-NULL
+data$Foundation<-NULL
+data$RoofMatl<-NULL
+data$Exterior1st<-NULL
+data$Exterior2nd<-NULL
+data$Condition1<-NULL
+data$SaleType<-NULL
+data$Electrical<-NULL
+data$Functional<-NULL
+data$LandContour<-NULL
+data$CentralAir<-NULL
+data$HeatingQC<-NULL
+data$ExterCond<-NULL
+data$KitchenQual<-NULL
+data$ExterQual<-NULL
+data$PavedDrive<-NULL
+data$LotConfig<-NULL
+data$LotShape<-NULL
+data$BldgType<-NULL
+data$LandSlope<-NULL
+
+data0=na.omit(data)
+summary(data0)
+dim(data0)
+names(data0)
+train=sample(dim(data0)[1],dim(data0)[1]*0.75)#split data
+
+train.Y=data0[train,]$SalePrice
+test.Y=data0[-train,]$SalePrice
+dim(data0)
+train.X=data0[train,-69]
+test.X=data0[-train,-69]
+
+knn.pred=knn(train.X,test.X,train.Y,k=1) #
+knn.pred
+# summary(knn.pred)
+knn.pred.num <- as.numeric(as.character(knn.pred))
+mean((knn.pred.num-test.Y)^2)
+#11066609
+knn.mae=mean(abs(knn.pred.num-test.Y))
+#962.3829
+knn.real.avg<-mean(test.Y)
+knn.r2<-1-mean((knn.pred.num-test.Y)^2)/mean((test.Y-knn.real.avg)^2)
+#0.9982219
+
+
+knn.pred=knn(train.X,test.X,train.Y,k=3) #
+knn.pred
+knn.pred.num <- as.numeric(as.character(knn.pred))
+mean((knn.pred.num-test.Y)^2)
+#13633639
+knn.mae=mean(abs(knn.pred.num-test.Y))
+#1360.118
+knn.real.avg<-mean(test.Y)
+knn.r2<-1-mean((knn.pred.num-test.Y)^2)/mean((test.Y-knn.real.avg)^2)
+#0.9978094
+
+knn.pred=knn(train.X,test.X,train.Y,k=5) #
+knn.pred
+knn.pred.num <- as.numeric(as.character(knn.pred))
+mean((knn.pred.num-test.Y)^2)
+#16462835
+knn.mae=mean(abs(knn.pred.num-test.Y))
+#1579.264
+knn.test.avg<-mean(test.Y)
+knn.r2<-1-mean((knn.pred.num-test.Y)^2)/mean((test.Y-knn.real.avg)^2)
+#0.9973548
+
+#Finally, after comparing all the models, KNN, k=1 is the best. So I choose KNN, k=1 to train using all the training data, and predict the test data.
+
+testData<-read.table(file="test.csv",sep =",",head=TRUE, stringsAsFactors = TRUE)
+dim(testData)
+summary(testData)
+
+#testData clean
+#delete some variables
+testData$Id<-NULL
+testData$Street<-NULL
+testData$Alley<-NULL #too many NA
+testData$LotFrontage<-NULL #too many NA
+testData$GarageYrBlt<-NULL #too many NA
+testData$Fence<-NULL #too many NA
+testData$MiscFeature<-NULL #too many NA
+testData$PoolQC<-NULL #too many NA
+testData$BsmtQual<-NULL #too many NA
+testData$BsmtCond<-NULL #too many NA
+testData$BsmtExposure<-NULL #too many NA
+testData$BsmtFinType1<-NULL #too many NA
+testData$BsmtFinType2<-NULL #too many NA
+testData$FireplaceQu<-NULL #too many NA
+testData$GarageType<-NULL #too many NA
+testData$GarageFinish<-NULL #too many NA
+testData$GarageQual<-NULL #too many NA
+testData$GarageCond<-NULL #too many NA
+testData$Utilities<-NULL #only two level, one level has only 1 testData
+testData$Condition2<-NULL #most level<10
+testData$Heating<-NULL #most level<10
+
+#combine some variables
+levels(testData$MSZoning)
+levels(testData$MSZoning)[levels(testData$MSZoning)%in%c("C (all)","RH")] <- "CandRH" #combine C and RH
+levels(testData$LotConfig)[levels(testData$LotConfig)%in%c("FR3","FR2")] <- "FR2andFR3"
+levels(testData$RoofStyle)[levels(testData$RoofStyle)%in%c("Shed","Mansard","Gambrel")] <- "Combined"
+levels(testData$RoofMatl)[levels(testData$RoofMatl)%in%c("Tar&Grv","WdShngl","WdShake","ClyTile","Membran","(Other)","Metal","Roll")] <- "Combined"
+levels(testData$ExterCond)[levels(testData$ExterCond)%in%c("Ex","Po","Fa")] <- "CombinedFa"
+levels(testData$Foundation)[levels(testData$Foundation)%in%c("Slab","Stone","Wood")] <- "FR2andFR3"
+levels(testData$HeatingQC)[levels(testData$HeatingQC)%in%c("Po","Fa")] <- "CombinedFa"
+levels(testData$Electrical)[levels(testData$Electrical)%in%c("FuseP","Mix","FuseF")] <- "CombinedFuseF"
+levels(testData$Functional)[levels(testData$Functional)%in%c("Maj2","Sev","Maj1")] <- "CombinedMaj1"
+levels(testData$SaleType)[levels(testData$SaleType)%in%c("ConLD","ConLI","ConLw","(Other)")] <- "CombinedOther"
+levels(testData$SaleCondition)[levels(testData$SaleCondition)%in%c("AdjLand","Alloca")] <- "CombinedFa"
+levels(testData$Exterior2nd)[levels(testData$Exterior2nd)%in%c("AsphShn","Brk Cmn","CBlock","ImStucc","Other","Stone")] <- "CombinedOther"
+
+#delete all categorical variables
+testData$RoofStyle<-NULL
+testData$MasVnrType<-NULL
+testData$HouseStyle<-NULL
+testData$Neighborhood<-NULL
+testData$SaleCondition<-NULL
+testData$MSZoning<-NULL
+testData$Foundation<-NULL
+testData$RoofMatl<-NULL
+testData$Exterior1st<-NULL
+testData$Exterior2nd<-NULL
+testData$Condition1<-NULL
+testData$SaleType<-NULL
+testData$Electrical<-NULL
+testData$Functional<-NULL
+testData$LandContour<-NULL
+testData$CentralAir<-NULL
+testData$HeatingQC<-NULL
+testData$ExterCond<-NULL
+testData$KitchenQual<-NULL
+testData$ExterQual<-NULL
+testData$PavedDrive<-NULL
+testData$LotConfig<-NULL
+testData$LotShape<-NULL
+testData$BldgType<-NULL
+testData$LandSlope<-NULL
+
+testData0=na.omit(testData)
+summary(testData0)
+
+data<-read.table(file="train1.csv",sep =",",head=TRUE, stringsAsFactors = TRUE)
+dim(data)
+summary(data)
+
+#data clean
+#delete some variables
+data$Id<-NULL
+data$Street<-NULL
+data$Alley<-NULL #too many NA
+data$LotFrontage<-NULL #too many NA
+data$GarageYrBlt<-NULL #too many NA
+data$Fence<-NULL #too many NA
+data$MiscFeature<-NULL #too many NA
+data$PoolQC<-NULL #too many NA
+data$BsmtQual<-NULL #too many NA
+data$BsmtCond<-NULL #too many NA
+data$BsmtExposure<-NULL #too many NA
+data$BsmtFinType1<-NULL #too many NA
+data$BsmtFinType2<-NULL #too many NA
+data$FireplaceQu<-NULL #too many NA
+data$GarageType<-NULL #too many NA
+data$GarageFinish<-NULL #too many NA
+data$GarageQual<-NULL #too many NA
+data$GarageCond<-NULL #too many NA
+data$Utilities<-NULL #only two level, one level has only 1 data
+data$Condition2<-NULL #most level<10
+data$Heating<-NULL #most level<10
+
+#combine some variables
+levels(data$MSZoning)
+levels(data$MSZoning)[levels(data$MSZoning)%in%c("C (all)","RH")] <- "CandRH" #combine C and RH
+levels(data$LotConfig)[levels(data$LotConfig)%in%c("FR3","FR2")] <- "FR2andFR3"
+levels(data$RoofStyle)[levels(data$RoofStyle)%in%c("Shed","Mansard","Gambrel")] <- "Combined"
+levels(data$RoofMatl)[levels(data$RoofMatl)%in%c("Tar&Grv","WdShngl","WdShake","ClyTile","Membran","(Other)","Metal","Roll")] <- "Combined"
+levels(data$ExterCond)[levels(data$ExterCond)%in%c("Ex","Po","Fa")] <- "CombinedFa"
+levels(data$Foundation)[levels(data$Foundation)%in%c("Slab","Stone","Wood")] <- "FR2andFR3"
+levels(data$HeatingQC)[levels(data$HeatingQC)%in%c("Po","Fa")] <- "CombinedFa"
+levels(data$Electrical)[levels(data$Electrical)%in%c("FuseP","Mix","FuseF")] <- "CombinedFuseF"
+levels(data$Functional)[levels(data$Functional)%in%c("Maj2","Sev","Maj1")] <- "CombinedMaj1"
+levels(data$SaleType)[levels(data$SaleType)%in%c("ConLD","ConLI","ConLw","(Other)")] <- "CombinedOther"
+levels(data$SaleCondition)[levels(data$SaleCondition)%in%c("AdjLand","Alloca")] <- "CombinedFa"
+levels(data$Exterior2nd)[levels(data$Exterior2nd)%in%c("AsphShn","Brk Cmn","CBlock","ImStucc","Other","Stone")] <- "CombinedOther"
+
+#delete all categorical variables
+data$RoofStyle<-NULL
+data$MasVnrType<-NULL
+data$HouseStyle<-NULL
+data$Neighborhood<-NULL
+data$SaleCondition<-NULL
+data$MSZoning<-NULL
+data$Foundation<-NULL
+data$RoofMatl<-NULL
+data$Exterior1st<-NULL
+data$Exterior2nd<-NULL
+data$Condition1<-NULL
+data$SaleType<-NULL
+data$Electrical<-NULL
+data$Functional<-NULL
+data$LandContour<-NULL
+data$CentralAir<-NULL
+data$HeatingQC<-NULL
+data$ExterCond<-NULL
+data$KitchenQual<-NULL
+data$ExterQual<-NULL
+data$PavedDrive<-NULL
+data$LotConfig<-NULL
+data$LotShape<-NULL
+data$BldgType<-NULL
+data$LandSlope<-NULL
+
+data0=na.omit(data)
+
+dim(testData0)
+dim(data0)
+names(data0)
+
+train.Y=data0$SalePrice
+train.X=data0[,-35]
+test.X=testData0
+dim(train.X)
+dim(test.X)
+length(train.Y)
+knn.pred=knn(train.X,test.X,train.Y,k=1) #
+knn.pred
+```
